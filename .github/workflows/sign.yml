@@ -1,19 +1,19 @@
 name: 微博超话自动打卡
 
 on:
-  workflow_dispatch: # 支持手动点击运行测试
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *' # 每天 UTC 时间 0 点（北京时间早上 8 点）自动运行
+    - cron: '0 0 * * *' # 北京时间早上 8 点运行
 
 jobs:
   run-sign:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: 配置 Python 环境
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
           
@@ -21,6 +21,23 @@ jobs:
         run: pip install requests
         
       - name: 执行签到脚本
+        id: sign # 给这一步起个名字，方便后面判断结果
         env:
-          WEIBO_COOKIE: ${{ secrets.WEIBO_COOKIE }} # 这里读取你配置的 Secret
-        run: python wb.py
+          WEIBO_COOKIE: ${{ secrets.WEIBO_COOKIE }}
+        run: python wb.py > result.log 2>&1 # 将运行结果保存到文件里
+        
+      - name: 发送微信通知
+        if: always() # 无论签到成功还是失败，都发送通知
+        run: |
+          # 读取运行日志的内容
+          CONTENT=$(cat result.log | tail -c 2000) # 截取最后一部分日志，防止内容过长
+          
+          # 发送请求给 PushPlus
+          curl -X POST "http://www.pushplus.plus/send" \
+               -H "Content-Type: application/json" \
+               -d "{
+                 \"token\": \"${{ secrets.PUSHPLUS_TOKEN }}\",
+                 \"title\": \"微博超话打卡提醒\",
+                 \"content\": \"${CONTENT}\",
+                 \"template\": \"html\"
+               }"
