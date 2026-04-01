@@ -21,23 +21,31 @@ jobs:
         run: pip install requests
         
       - name: 执行签到脚本
-        id: sign # 给这一步起个名字，方便后面判断结果
         env:
           WEIBO_COOKIE: ${{ secrets.WEIBO_COOKIE }}
-        run: python wb.py > result.log 2>&1 # 将运行结果保存到文件里
+        run: python wb.py > result.log 2>&1
         
       - name: 发送微信通知
-        if: always() # 无论签到成功还是失败，都发送通知
+        if: always()
         run: |
           # 读取运行日志的内容
-          CONTENT=$(cat result.log | tail -c 2000) # 截取最后一部分日志，防止内容过长
+          CONTENT=$(cat result.log)
           
-          # 发送请求给 PushPlus
+          # 智能判断结果，动态修改微信外面显示的标题
+          if grep -q "成功" result.log; then
+            TITLE="✅ 微博超话签到成功"
+          else
+            TITLE="❌ 微博打卡异常(可能Cookie已过期)"
+          fi
+          
+          # 安全地把内容打包发给 PushPlus
+          jq -n \
+            --arg token "${{ secrets.PUSHPLUS_TOKEN }}" \
+            --arg title "$TITLE" \
+            --arg content "$CONTENT" \
+            '{token: $token, title: $title, content: $content, template: "txt"}' \
+            > payload.json
+            
           curl -X POST "http://www.pushplus.plus/send" \
                -H "Content-Type: application/json" \
-               -d "{
-                 \"token\": \"${{ secrets.PUSHPLUS_TOKEN }}\",
-                 \"title\": \"微博超话打卡提醒\",
-                 \"content\": \"${CONTENT}\",
-                 \"template\": \"html\"
-               }"
+               -d @payload.json
